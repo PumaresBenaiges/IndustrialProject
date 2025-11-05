@@ -1,19 +1,13 @@
 import numpy as np
-import pandas as pd
 import cv2
 import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap
 import tifffile as tiff
 from sklearn.cluster import KMeans
 from scipy.ndimage import binary_fill_holes
 from scipy.interpolate import interp1d
 import matplotlib.patches as mpatches
 
-from matplotlib.colors import ListedColormap
-
-
-from CSL_2025_Python_codes import spim2XYZ, XYZ2Lab
-
-import math
 
 def plot_image(image, title=""):
     # Plot the image
@@ -56,8 +50,9 @@ def get_example_reflectance(defect_cubes, sample_name, wavelength):
 
     return reflectance_image
 
+
 def convert_binary_image(gray):
-    #gray = get_example_reflectance(defect_cubes, defect, band)
+    # gray = get_example_reflectance(defect_cubes, defect, band)
     gray_norm = gray / np.max(gray)
     gray_norm = (gray_norm * 255).astype(np.uint8)
     _, binary_image = cv2.threshold(gray_norm, 60, 255, cv2.THRESH_BINARY_INV)
@@ -104,11 +99,10 @@ def compute_IC_mask(RGB_image, H=None):
         h, w, b = RGB_image.shape
         segmented_image = segmented_image.astype(np.uint8)
         segmented_image = cv2.warpAffine(segmented_image, H, (w, h))
-        
 
     # Plooot clustering kmeans
     num_clusters = 5
-    cmap_base = plt.get_cmap('tab10')
+    cmap_base = plt.get_cmap("tab10")
 
     # Build a ListedColormap with exactly num_clusters distinct colors
     colors = [cmap_base(i) for i in range(num_clusters)]
@@ -128,10 +122,7 @@ def compute_IC_mask(RGB_image, H=None):
     ]
 
     plt.legend(
-        handles=patches,
-        loc='upper right',
-        bbox_to_anchor=(1.25, 1),
-        title="Clusters"
+        handles=patches, loc="upper right", bbox_to_anchor=(1.25, 1), title="Clusters"
     )
     plt.show()
     ###############33333333
@@ -153,7 +144,10 @@ def compute_IC_mask(RGB_image, H=None):
 
     return filled.astype(np.uint8)
 
-def align_and_visualise_homography(img_ref, img_to_align, defect, n_features=7000, visualise=True): 
+
+def align_and_visualise_homography(
+    img_ref, img_to_align, defect, n_features=7000, visualise=True
+):
     img_to_align = cv2.equalizeHist(img_to_align)
 
     orb = cv2.ORB_create(n_features)
@@ -172,14 +166,16 @@ def align_and_visualise_homography(img_ref, img_to_align, defect, n_features=700
     pts_to = np.float32([kp2[m.trainIdx].pt for m in matches]).reshape(-1, 2)
 
     # Compute homography using RANSAC
-    H, mask = cv2.findHomography(pts_to, pts_ref, cv2.RANSAC, 5.0) #increase RANSAC threshold in case of noisy image
+    H, mask = cv2.findHomography(
+        pts_to, pts_ref, cv2.RANSAC, 5.0
+    )  # increase RANSAC threshold in case of noisy image
 
     if H is None:
         print(f"Homography estimation failed for {defect}")
         return None
 
     aligned = cv2.warpPerspective(img_to_align, H, (img_ref.shape[1], img_ref.shape[0]))
-    
+
     # Visualization
     if visualise:
         matches_inliers = [m for m, inlier in zip(matches, mask.ravel()) if inlier]
@@ -251,9 +247,14 @@ def align_and_blend_RGB_homography(ref_rgb, defect_rgb, H, defect_name):
 
 
 def extract_RGB(cube, wavelengths):
-    RGB = cube[[wavelengths.index(650), wavelengths.index(550), wavelengths.index(470)],:,:,]
+    RGB = cube[
+        [wavelengths.index(650), wavelengths.index(550), wavelengths.index(470)],
+        :,
+        :,
+    ]
     RGB = np.transpose(RGB, (1, 2, 0))
     return RGB
+
 
 def get_circle_info(mask, rgb_image, visualisation=False):
 
@@ -284,7 +285,7 @@ def get_circle_info(mask, rgb_image, visualisation=False):
         cv2.circle(output, (int(x), int(y)), 2, (0, 0, 255), -1)
 
         plt.imshow(output)
-        plt.axis('off')
+        plt.axis("off")
         plt.title("Detected Circle")
         plt.show()
 
@@ -302,17 +303,18 @@ def get_circle_info(mask, rgb_image, visualisation=False):
         # "contour": largest_contour,
     }
 
+
 def crop_circle(image, center, radius):
     x, y = center
     r = int(radius) - 5
-    
+
     x, y = int(round(x)), int(round(y))
     h, w = image.shape[:2]
     y1, y2 = max(0, y - r), min(h, y + r)
     x1, x2 = max(0, x - r), min(w, x + r)
-    
+
     cropped_rect = image[y1:y2, x1:x2]
-    
+
     mask = np.zeros(cropped_rect.shape[:2], dtype=np.uint8)
     cv2.circle(mask, (r, r), r, 255, -1)
 
@@ -320,24 +322,27 @@ def crop_circle(image, center, radius):
         masked = cv2.bitwise_and(cropped_rect, cropped_rect, mask=mask)
     else:
         masked = cv2.bitwise_and(cropped_rect, cropped_rect, mask=mask)
-    
+
     return masked
+
 
 def average_reflectance_in_circle(hypercube, center, radius, transform=None):
 
     bands, h, w = hypercube.shape
-    
+
     if transform is not None:
         if transform.shape == (3, 3):
-            hypercube_aligned = np.stack([
-                cv2.warpPerspective(hypercube[i], transform, (w, h))
-                for i in range(bands)
-            ])
+            hypercube_aligned = np.stack(
+                [
+                    cv2.warpPerspective(hypercube[i], transform, (w, h))
+                    for i in range(bands)
+                ]
+            )
         else:
             raise ValueError("Transform must be 3x3 matrix")
     else:
         hypercube_aligned = hypercube
-    
+
     mask = np.zeros((h, w), dtype=np.uint8)
     cx, cy = int(round(center[0])), int(round(center[1]))
     r = int(radius) - 5
@@ -351,8 +356,9 @@ def average_reflectance_in_circle(hypercube, center, radius, transform=None):
             mean_reflectance.append(np.mean(masked_pixels))
         else:
             mean_reflectance.append(np.nan)
-    
+
     return np.array(mean_reflectance)
+
 
 def calculate_delta_E(LAB_ref, LAB_def, mask=None):
     delta = LAB_ref - LAB_def
@@ -361,8 +367,11 @@ def calculate_delta_E(LAB_ref, LAB_def, mask=None):
         deltaE = deltaE[mask > 0]
     return np.nanmean(deltaE)
 
-def interpolate_spectral_cube(spectral_cube, input_wavelengths, wl_min=300, wl_max=950, wl_step=1):
-    """ Interpolate hyperspectral cube to a new wavelength range """
+
+def interpolate_spectral_cube(
+    spectral_cube, input_wavelengths, wl_min=300, wl_max=950, wl_step=1
+):
+    """Interpolate hyperspectral cube to a new wavelength range"""
     input_wavelengths = np.array(input_wavelengths)
     bands, H, W = spectral_cube.shape
 
@@ -370,8 +379,12 @@ def interpolate_spectral_cube(spectral_cube, input_wavelengths, wl_min=300, wl_m
     cube_reshaped = spectral_cube.reshape(bands, -1)
 
     interp_func = interp1d(
-        input_wavelengths, cube_reshaped, kind='linear', axis=0,
-        bounds_error=False, fill_value='extrapolate'
+        input_wavelengths,
+        cube_reshaped,
+        kind="linear",
+        axis=0,
+        bounds_error=False,
+        fill_value="extrapolate",
     )
 
     cube_interp = interp_func(output_wavelengths)
