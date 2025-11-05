@@ -6,6 +6,10 @@ import tifffile as tiff
 from sklearn.cluster import KMeans
 from scipy.ndimage import binary_fill_holes
 from scipy.interpolate import interp1d
+import matplotlib.patches as mpatches
+
+from matplotlib.colors import ListedColormap
+
 
 from CSL_2025_Python_codes import spim2XYZ, XYZ2Lab
 
@@ -81,7 +85,7 @@ def overlay_mask(base_image, mask, title, color=(1, 0, 0), alpha=0.5):
     plt.show()
 
 
-def compute_IC_mask(RGB_image):
+def compute_IC_mask(RGB_image, H=None):
     RGB_image = RGB_image.astype(np.float32)
 
     if RGB_image.shape[0] == 3:
@@ -94,8 +98,45 @@ def compute_IC_mask(RGB_image):
     k_means = KMeans(n_clusters=5, random_state=0, n_init=10)
     labels = k_means.fit_predict(pixels)
     segmented_image = labels.reshape(height, width)
+    print(segmented_image)
 
-    pixel_IC = (300, 190)
+    if H is not None:
+        h, w, b = RGB_image.shape
+        segmented_image = segmented_image.astype(np.uint8)
+        segmented_image = cv2.warpAffine(segmented_image, H, (w, h))
+        
+
+    # Plooot clustering kmeans
+    num_clusters = 5
+    cmap_base = plt.get_cmap('tab10')
+
+    # Build a ListedColormap with exactly num_clusters distinct colors
+    colors = [cmap_base(i) for i in range(num_clusters)]
+    cmap = ListedColormap(colors)
+
+    plt.figure(figsize=(8, 6))
+
+    # Display the segmented image with the defined colormap
+    im = plt.imshow(segmented_image, cmap=cmap)
+    plt.title("K-Means Segmentation (5 Clusters)")
+    plt.axis("off")
+
+    # Create legend patches that use *exactly* the same colors
+    patches = [
+        mpatches.Patch(color=colors[i], label=f"Cluster {i+1}")
+        for i in range(num_clusters)
+    ]
+
+    plt.legend(
+        handles=patches,
+        loc='upper right',
+        bbox_to_anchor=(1.25, 1),
+        title="Clusters"
+    )
+    plt.show()
+    ###############33333333
+
+    pixel_IC = (300, 200)
     IC_label = segmented_image[pixel_IC]
     mask = (segmented_image == IC_label).astype(np.uint8)
 
@@ -106,6 +147,9 @@ def compute_IC_mask(RGB_image):
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
     closed = cv2.morphologyEx(circle_mask, cv2.MORPH_CLOSE, kernel)
     filled = binary_fill_holes(closed > 0)
+
+    plt.imshow(filled.astype(np.uint8))
+    plt.show()
 
     return filled.astype(np.uint8)
 
@@ -211,7 +255,7 @@ def extract_RGB(cube, wavelengths):
     RGB = np.transpose(RGB, (1, 2, 0))
     return RGB
 
-def get_circle_info(mask, visualisation=False):
+def get_circle_info(mask, rgb_image, visualisation=False):
 
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:
@@ -235,7 +279,7 @@ def get_circle_info(mask, visualisation=False):
 
     # Optional visualization
     if visualisation:
-        output = mask.copy()
+        output = rgb_image.copy()
         cv2.circle(output, (int(x), int(y)), int(radius), (0, 255, 0), 2)
         cv2.circle(output, (int(x), int(y)), 2, (0, 0, 255), -1)
 
