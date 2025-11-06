@@ -80,7 +80,7 @@ def overlay_mask(base_image, mask, title, color=(1, 0, 0), alpha=0.5):
     plt.show()
 
 
-def compute_IC_mask(RGB_image, H=None):
+def compute_IC_mask(RGB_image, H=None, vis=True, pixel_IC=(305,191)):
     RGB_image = RGB_image.astype(np.float32)
 
     if RGB_image.shape[0] == 3:
@@ -93,54 +93,57 @@ def compute_IC_mask(RGB_image, H=None):
     k_means = KMeans(n_clusters=5, random_state=0, n_init=10)
     labels = k_means.fit_predict(pixels)
     segmented_image = labels.reshape(height, width)
-    print(segmented_image)
 
     if H is not None:
         h, w, b = RGB_image.shape
-        segmented_image = segmented_image.astype(np.uint8)
+        segmented_image = segmented_image.astype(np.float32)
         segmented_image = cv2.warpAffine(segmented_image, H, (w, h))
 
     # Plooot clustering kmeans
-    num_clusters = 5
-    cmap_base = plt.get_cmap("tab10")
+    if vis:
+        num_clusters = 5
+        cmap_base = plt.get_cmap("tab10")
 
-    # Build a ListedColormap with exactly num_clusters distinct colors
-    colors = [cmap_base(i) for i in range(num_clusters)]
-    cmap = ListedColormap(colors)
+        # Build a ListedColormap with exactly num_clusters distinct colors
+        colors = [cmap_base(i) for i in range(num_clusters)]
+        cmap = ListedColormap(colors)
 
-    plt.figure(figsize=(8, 6))
+        plt.figure(figsize=(8, 6))
 
-    # Display the segmented image with the defined colormap
-    im = plt.imshow(segmented_image, cmap=cmap)
-    plt.title("K-Means Segmentation (5 Clusters)")
-    plt.axis("off")
+        # Display the segmented image with the defined colormap
+        im = plt.imshow(segmented_image, cmap=cmap)
+        plt.title("K-Means Segmentation (5 Clusters)")
+        plt.axis("off")
 
-    # Create legend patches that use *exactly* the same colors
-    patches = [
-        mpatches.Patch(color=colors[i], label=f"Cluster {i+1}")
-        for i in range(num_clusters)
-    ]
+        # Create legend patches that use *exactly* the same colors
+        patches = [
+            mpatches.Patch(color=colors[i], label=f"Cluster {i+1}")
+            for i in range(num_clusters)
+        ]
 
-    plt.legend(
-        handles=patches, loc="upper right", bbox_to_anchor=(1.25, 1), title="Clusters"
-    )
-    plt.show()
-    ###############33333333
+        plt.legend(
+            handles=patches, loc="upper right", bbox_to_anchor=(1.25, 1), title="Clusters"
+        )
+        plt.show()
+    ###############
 
-    pixel_IC = (300, 200)
+    # Get cluster that contains IC
     IC_label = segmented_image[pixel_IC]
     mask = (segmented_image == IC_label).astype(np.uint8)
 
+    # Using cluster region growing from center of IC
     flood_mask = mask.copy()
     cv2.floodFill(flood_mask, None, (pixel_IC[1], pixel_IC[0]), 128)
     circle_mask = (flood_mask == 128).astype(np.uint8)
 
+    # Improve circle, fill holes
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
     closed = cv2.morphologyEx(circle_mask, cv2.MORPH_CLOSE, kernel)
     filled = binary_fill_holes(closed > 0)
 
-    plt.imshow(filled.astype(np.uint8))
-    plt.show()
+    if vis:
+        plt.imshow(filled.astype(np.uint8))
+        plt.show()
 
     return filled.astype(np.uint8)
 
