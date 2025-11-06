@@ -80,7 +80,7 @@ def overlay_mask(base_image, mask, title, color=(1, 0, 0), alpha=0.5):
     plt.show()
 
 
-def compute_IC_mask(RGB_image, H=None, vis=True, pixel_IC=(305,191)):
+def compute_IC_mask(RGB_image, H=None, vis=True, pixel_IC=(305, 191)):
     RGB_image = RGB_image.astype(np.float32)
 
     if RGB_image.shape[0] == 3:
@@ -122,7 +122,10 @@ def compute_IC_mask(RGB_image, H=None, vis=True, pixel_IC=(305,191)):
         ]
 
         plt.legend(
-            handles=patches, loc="upper right", bbox_to_anchor=(1.25, 1), title="Clusters"
+            handles=patches,
+            loc="upper right",
+            bbox_to_anchor=(1.25, 1),
+            title="Clusters",
         )
         plt.show()
     ###############
@@ -363,12 +366,83 @@ def average_reflectance_in_circle(hypercube, center, radius, transform=None):
     return np.array(mean_reflectance)
 
 
+# def calculate_delta_E(LAB_ref, LAB_def, mask=None):
+#     delta = LAB_ref - LAB_def
+#     deltaE = np.sqrt(np.sum(delta**2, axis=2))
+#     if mask is not None:
+#         deltaE = deltaE[mask > 0]
+#     return np.nanmean(deltaE)
+import numpy as np
+
+
 def calculate_delta_E(LAB_ref, LAB_def, mask=None):
-    delta = LAB_ref - LAB_def
-    deltaE = np.sqrt(np.sum(delta**2, axis=2))
     if mask is not None:
-        deltaE = deltaE[mask > 0]
-    return np.nanmean(deltaE)
+        LAB_ref = LAB_ref[mask > 0]
+        LAB_def = LAB_def[mask > 0]
+
+    L1, a1, b1 = LAB_ref[..., 0], LAB_ref[..., 1], LAB_ref[..., 2]
+    L2, a2, b2 = LAB_def[..., 0], LAB_def[..., 1], LAB_def[..., 2]
+
+    avg_L = 0.5 * (L1 + L2)
+    C1 = np.sqrt(a1**2 + b1**2)
+    C2 = np.sqrt(a2**2 + b2**2)
+    avg_C = 0.5 * (C1 + C2)
+
+    G = 0.5 * (1 - np.sqrt((avg_C**7) / (avg_C**7 + 25**7)))
+    a1p = (1 + G) * a1
+    a2p = (1 + G) * a2
+    C1p = np.sqrt(a1p**2 + b1**2)
+    C2p = np.sqrt(a2p**2 + b2**2)
+
+    h1p = np.degrees(np.arctan2(b1, a1p)) % 360
+    h2p = np.degrees(np.arctan2(b2, a2p)) % 360
+
+    dLp = L2 - L1
+    dCp = C2p - C1p
+
+    dhp = h2p - h1p
+    dhp = np.where(dhp > 180, dhp - 360, dhp)
+    dhp = np.where(dhp < -180, dhp + 360, dhp)
+    dHp = 2 * np.sqrt(C1p * C2p) * np.sin(np.radians(dhp) / 2)
+
+    avg_Lp = (L1 + L2) / 2
+    avg_Cp = (C1p + C2p) / 2
+
+    hsum = h1p + h2p
+    hdiff = np.abs(h1p - h2p)
+    avg_hp = np.where(
+        (C1p * C2p) == 0,
+        hsum / 2,
+        np.where(
+            hdiff <= 180,
+            hsum / 2,
+            np.where(hsum < 360, (hsum + 360) / 2, (hsum - 360) / 2),
+        ),
+    )
+
+    T = (
+        1
+        - 0.17 * np.cos(np.radians(avg_hp - 30))
+        + 0.24 * np.cos(np.radians(2 * avg_hp))
+        + 0.32 * np.cos(np.radians(3 * avg_hp + 6))
+        - 0.20 * np.cos(np.radians(4 * avg_hp - 63))
+    )
+
+    delta_ro = 30 * np.exp(-(((avg_hp - 275) / 25) ** 2))
+    Rc = 2 * np.sqrt((avg_Cp**7) / (avg_Cp**7 + 25**7))
+    Sl = 1 + (0.015 * (avg_Lp - 50) ** 2) / np.sqrt(20 + (avg_Lp - 50) ** 2)
+    Sc = 1 + 0.045 * avg_Cp
+    Sh = 1 + 0.015 * avg_Cp * T
+    Rt = -np.sin(2 * np.radians(delta_ro)) * Rc
+
+    deltaE00 = np.sqrt(
+        (dLp / Sl) ** 2
+        + (dCp / Sc) ** 2
+        + (dHp / Sh) ** 2
+        + Rt * (dCp / Sc) * (dHp / Sh)
+    )
+
+    return np.nanmean(deltaE00)
 
 
 def interpolate_spectral_cube(
