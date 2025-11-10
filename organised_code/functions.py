@@ -80,7 +80,7 @@ def overlay_mask(base_image, mask, title, color=(1, 0, 0), alpha=0.5):
     plt.show()
 
 
-def compute_IC_mask(RGB_image, H=None, vis=True, pixel_IC=(305, 191)):
+def compute_IC_mask(RGB_image, H=None, vis=True, pixel_IC=(192, 305)):
     RGB_image = RGB_image.astype(np.float32)
 
     if RGB_image.shape[0] == 3:
@@ -131,12 +131,12 @@ def compute_IC_mask(RGB_image, H=None, vis=True, pixel_IC=(305, 191)):
     ###############
 
     # Get cluster that contains IC
-    IC_label = segmented_image[pixel_IC]
+    IC_label = segmented_image[(pixel_IC[1], pixel_IC[0])]
     mask = (segmented_image == IC_label).astype(np.uint8)
 
     # Using cluster region growing from center of IC
     flood_mask = mask.copy()
-    cv2.floodFill(flood_mask, None, (pixel_IC[1], pixel_IC[0]), 128)
+    cv2.floodFill(flood_mask, None, (pixel_IC[0], pixel_IC[1]), 128)
     circle_mask = (flood_mask == 128).astype(np.uint8)
 
     # Improve circle, fill holes
@@ -312,7 +312,7 @@ def get_circle_info(mask, rgb_image, visualisation=False):
 
 def crop_circle(image, center, radius):
     x, y = center
-    r = int(radius) - 5
+    r = int(radius) # - 5
 
     x, y = int(round(x)), int(round(y))
     h, w = image.shape[:2]
