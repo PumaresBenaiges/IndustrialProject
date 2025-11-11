@@ -55,7 +55,7 @@ def convert_binary_image(gray):
     # gray = get_example_reflectance(defect_cubes, defect, band)
     gray_norm = gray / np.max(gray)
     gray_norm = (gray_norm * 255).astype(np.uint8)
-    _, binary_image = cv2.threshold(gray_norm, 60, 255, cv2.THRESH_BINARY_INV)
+    _, binary_image = cv2.threshold(gray_norm, 70, 255, cv2.THRESH_BINARY_INV)
 
     return binary_image
 
@@ -172,15 +172,25 @@ def align_and_visualise_homography(
     pts_to = np.float32([kp2[m.trainIdx].pt for m in matches]).reshape(-1, 2)
 
     # Compute homography using RANSAC
-    H, mask = cv2.findHomography(
-        pts_to, pts_ref, cv2.RANSAC, 5.0
-    )  # increase RANSAC threshold in case of noisy image
+    # H, mask = cv2.findHomography(
+    #     pts_to, pts_ref, cv2.RANSAC, 5.0
+    # )  # increase RANSAC threshold in case of noisy image
 
-    if H is None:
-        print(f"Homography estimation failed for {defect}")
+    # if H is None:
+    #     print(f"Homography estimation failed for {defect}")
+    #     return None
+
+    # aligned = cv2.warpPerspective(img_to_align, H, (img_ref.shape[1], img_ref.shape[0]))
+
+    M, mask = cv2.estimateAffinePartial2D(
+        pts_to, pts_ref, method=cv2.RANSAC, ransacReprojThreshold=5.0
+    )
+
+    if M is None:
+        print(f"Similarity transform estimation failed for {defect}")
         return None
 
-    aligned = cv2.warpPerspective(img_to_align, H, (img_ref.shape[1], img_ref.shape[0]))
+    aligned = cv2.warpAffine(img_to_align, M, (img_ref.shape[1], img_ref.shape[0]))
 
     # Visualization
     if visualise:
@@ -220,7 +230,7 @@ def align_and_visualise_homography(
 
         plt.show()
 
-    return H
+    return M
 
 
 def align_and_blend_RGB_homography(ref_rgb, defect_rgb, H, defect_name):
@@ -228,7 +238,7 @@ def align_and_blend_RGB_homography(ref_rgb, defect_rgb, H, defect_name):
     Align defect_rgb to ref_rgb using the homography H (cv2.warpPerspective)
     """
     h, w = ref_rgb.shape[:2]
-    aligned_defect = cv2.warpPerspective(defect_rgb, H, (w, h))
+    aligned_defect = cv2.warpAffine(defect_rgb, H, (w, h))
     blended = cv2.addWeighted(ref_rgb, 0.5, aligned_defect, 0.5, 0)
 
     plt.figure(figsize=(18, 6))
@@ -338,14 +348,17 @@ def average_reflectance_in_circle(hypercube, center, radius, transform=None):
 
     if transform is not None:
         if transform.shape == (3, 3):
+            # Homography
             hypercube_aligned = np.stack(
-                [
-                    cv2.warpPerspective(hypercube[i], transform, (w, h))
-                    for i in range(bands)
-                ]
+                [cv2.warpPerspective(hypercube[i], transform, (w, h)) for i in range(bands)]
+            )
+        elif transform.shape == (2, 3):
+            # Affine (similarity)
+            hypercube_aligned = np.stack(
+                [cv2.warpAffine(hypercube[i], transform, (w, h)) for i in range(bands)]
             )
         else:
-            raise ValueError("Transform must be 3x3 matrix")
+            raise ValueError("Transform must be 2x3 (affine) or 3x3 (homography)")
     else:
         hypercube_aligned = hypercube
 
