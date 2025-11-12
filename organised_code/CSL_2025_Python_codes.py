@@ -174,8 +174,8 @@ def spim2XYZ(spectral_image, spim_wavelengths, lsource="D65"):
         spectralImage = spectralImage.T.reshape((1, sizeSpim[1], sizeSpim[0]))
 
     # Spectra must be in the usable wavelength range (450 - 830 nm):
-    if wavelengths.min() < 450:
-        indices = wavelengths >= 450
+    if wavelengths.min() < 360:
+        indices = wavelengths >= 360
         spectralImage = spectralImage[:, :, indices]
         wavelengths = wavelengths[indices]
         if type(lsource) != str:
