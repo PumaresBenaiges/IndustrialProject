@@ -51,8 +51,7 @@ def get_example_reflectance(defect_cubes, sample_name, wavelength):
     return reflectance_image
 
 
-def convert_binary_image(gray):
-    # gray = get_example_reflectance(defect_cubes, defect, band)
+def gray_to_binary_image(gray):
     gray_norm = gray / np.max(gray)
     gray_norm = (gray_norm * 255).astype(np.uint8)
     _, binary_image = cv2.threshold(gray_norm, 70, 255, cv2.THRESH_BINARY_INV)
@@ -99,36 +98,25 @@ def compute_IC_mask(RGB_image, H=None, vis=True, pixel_IC=(192, 305)):
         segmented_image = segmented_image.astype(np.float32)
         segmented_image = cv2.warpAffine(segmented_image, H, (w, h))
 
-    # Plooot clustering kmeans
+    # Plot clustering kmeans
     if vis:
         num_clusters = 5
         cmap_base = plt.get_cmap("tab10")
-
-        # Build a ListedColormap with exactly num_clusters distinct colors
         colors = [cmap_base(i) for i in range(num_clusters)]
         cmap = ListedColormap(colors)
-
-        plt.figure(figsize=(8, 6))
-
-        # Display the segmented image with the defined colormap
+        plt.figure(figsize=(6, 4))
         im = plt.imshow(segmented_image, cmap=cmap)
         plt.title("K-Means Segmentation (5 Clusters)")
         plt.axis("off")
-
-        # Create legend patches that use *exactly* the same colors
         patches = [
             mpatches.Patch(color=colors[i], label=f"Cluster {i+1}")
-            for i in range(num_clusters)
-        ]
-
+            for i in range(num_clusters)]
         plt.legend(
             handles=patches,
             loc="upper right",
             bbox_to_anchor=(1.25, 1),
-            title="Clusters",
-        )
+            title="Clusters",)
         plt.show()
-    ###############
 
     # Get cluster that contains IC
     IC_label = segmented_image[(pixel_IC[1], pixel_IC[0])]
@@ -146,6 +134,7 @@ def compute_IC_mask(RGB_image, H=None, vis=True, pixel_IC=(192, 305)):
 
     if vis:
         plt.imshow(filled.astype(np.uint8))
+        plt.title("Inital mask")
         plt.show()
 
     return filled.astype(np.uint8)
@@ -154,6 +143,11 @@ def compute_IC_mask(RGB_image, H=None, vis=True, pixel_IC=(192, 305)):
 def align_and_visualise_homography(
     img_ref, img_to_align, defect, n_features=7000, visualise=True
 ):
+    """    if img_ref.dtype != np.uint8:
+            img_ref = np.clip(img_ref * 255, 0, 255).astype(np.uint8)
+    if img_to_align.dtype != np.uint8:
+            img_to_align = np.clip(img_to_align * 255, 0, 255).astype(np.uint8)"""
+
     img_to_align = cv2.equalizeHist(img_to_align)
 
     orb = cv2.ORB_create(n_features)
@@ -236,7 +230,11 @@ def align_and_visualise_homography(
 def align_and_blend_RGB_homography(ref_rgb, defect_rgb, H, defect_name):
     """
     Align defect_rgb to ref_rgb using the homography H (cv2.warpPerspective)
-    """
+    """   
+    if ref_rgb.dtype != np.uint8:
+            ref_rgb = np.clip(ref_rgb * 255, 0, 255).astype(np.uint8)
+    if defect_rgb.dtype != np.uint8:
+            defect_rgb = np.clip(defect_rgb * 255, 0, 255).astype(np.uint8)
     h, w = ref_rgb.shape[:2]
     aligned_defect = cv2.warpAffine(defect_rgb, H, (w, h))
     blended = cv2.addWeighted(ref_rgb, 0.5, aligned_defect, 0.5, 0)
@@ -302,7 +300,7 @@ def get_circle_info(mask, rgb_image, visualisation=False):
 
         plt.imshow(output)
         plt.axis("off")
-        plt.title("Detected Circle")
+        plt.title("Final detected circle")
         plt.show()
 
     ellipse = cv2.fitEllipse(largest_contour) if len(largest_contour) >= 5 else None
@@ -481,3 +479,53 @@ def interpolate_spectral_cube(
     spectral_cube_interp = cube_interp.reshape(len(output_wavelengths), H, W)
 
     return spectral_cube_interp, output_wavelengths
+
+def preprocess(img):
+    # CLAHE contrast enhancement
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+    img = clahe.apply(img)
+    # Smooth edges to reduce noise
+    img = cv2.GaussianBlur(img, (7,7), 1.5)
+    # Optional: sharpen edges
+    kernel = np.array([[0,-1,0],
+                       [-1,5,-1],
+                       [0,-1,0]])
+    img = cv2.filter2D(img, -1, kernel)
+    return img
+
+def detect_circle_center(image, vis=False):
+    if image.max() <= 1.0:
+        image = (image * 255).astype(np.uint8)
+    if len(image.shape) > 2:
+        image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+
+    gray = preprocess(image)
+
+    circles = cv2.HoughCircles(
+    gray,
+    cv2.HOUGH_GRADIENT,
+    dp=1.2,
+    minDist=80,
+    param1=80,   # lower Canny threshold
+    param2=20,   # LOWER = more sensitive
+    minRadius=20,
+    maxRadius=80
+    )
+
+    # Draw only the first detected circle
+    output = image.copy()
+    center = None 
+    if circles is not None:
+        circles = np.uint16(np.around(circles))
+        x, y, r = circles[0][0]
+        cv2.circle(output, (x, y), r, (0, 255, 0), 2)  # Circle outline
+        cv2.circle(output, (x, y), 2, (0, 0, 255), 3)  # Center point
+        # Extract center coordinates
+        center = (int(np.round(x)), int(np.round(y)))
+
+    if vis:
+        plt.imshow(output)
+        plt.title("Initial circle and center detection")
+        plt.show()
+
+    return center
