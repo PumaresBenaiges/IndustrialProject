@@ -133,8 +133,10 @@ def compute_IC_mask(RGB_image, H=None, vis=True, pixel_IC=(192, 305)):
     filled = binary_fill_holes(closed > 0)
 
     if vis:
+        plt.figure(figsize=(6,4))
         plt.imshow(filled.astype(np.uint8))
         plt.title("Inital mask")
+        plt.axis('off')
         plt.show()
 
     return filled.astype(np.uint8)
