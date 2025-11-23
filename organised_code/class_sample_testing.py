@@ -1,0 +1,311 @@
+
+import os
+import numpy as np
+import tifffile as tiff
+import matplotlib.pyplot as plt
+import cv2
+import re
+import math
+import pandas as pd
+from CSL_2025_Python_codes import spim2XYZ, XYZ2Lab, spim2rgb, XYZ2RGB
+from functions import *
+
+class sample_testing:
+    def __init__(self, vis=True, test=False, trial=0, operator=0):
+        self.vis = vis
+        self.test = test
+        self.trial = trial
+        self.operator = operator
+        if self.test:
+            self.base_folder = (
+                "../IDP Group A/test"
+                + str(self.trial)
+                + "/operator"
+                + str(self.operator)
+            )
+        else:
+            self.base_folder = "../IDP Group A/train"
+
+        sample_folders = [
+            folder.name
+            for folder in os.scandir(self.base_folder)
+            if folder.is_dir() and folder.name not in ["dark", "white", "reference", "reference_image"]
+        ]
+        self.sample_folders = sorted(sample_folders, key=lambda x: int(''.join(filter(str.isdigit, x))))
+
+        self.wavelengths = list(
+            range(450, 951, 20)
+        )  # Bands set in the lab when capturing images
+        self.band = 530  # Band for image alignment
+
+    def load_data(self):
+        def load_cube(folder_path):
+            tif_files = [
+                f for f in os.listdir(folder_path) if f.lower().endswith(".tif")
+            ]
+            tif_files.sort()
+
+            cube = []
+            for tif_file in tif_files:
+                tif_path = os.path.join(folder_path, tif_file)
+                tif = tiff.imread(tif_path)
+                cube.append(tif)
+            cube = np.array(cube)
+
+            return cube
+
+        # Load dark, white and reference cubes
+        dark_cube = load_cube(os.path.join(self.base_folder, "dark"))
+        white_cube = load_cube(os.path.join(self.base_folder, "white"))
+        if self.test:
+            self.reference_cube = load_cube(os.path.join(self.base_folder, "reference"))
+        else:
+            self.reference_cube = load_cube(os.path.join(self.base_folder, "reference")) #"reference image"))
+
+        # Load samples
+        denominator = white_cube - dark_cube
+        denominator[denominator == 0] = 1e-6  # Avoid division by zero
+        self.reference_cube = (self.reference_cube - dark_cube) / denominator
+        self.sample_cubes = {}
+        for folder in self.sample_folders:
+            sample_cube = load_cube(os.path.join(self.base_folder, folder))
+            self.sample_cubes[folder] = (
+                sample_cube - dark_cube
+            ) / denominator  # Shape: (bands, height, width)
+        self.bands, self.h, self.w = self.reference_cube.shape
+
+    def process_reference(self, vis=False):
+        print("Reference circle detection...")
+        R_sample = self.reference_cube
+        R_sample_interp, new_wavelengths = interpolate_spectral_cube(
+            R_sample, self.wavelengths, wl_min=360, wl_max=830, wl_step=10
+        )
+        R_sample_interp = np.transpose(R_sample_interp, (1, 2, 0))  # (H, W, bands)
+
+        ref_XYZ = spim2XYZ(R_sample_interp, new_wavelengths, "D65")
+        self.ref_LAB = XYZ2Lab(ref_XYZ, new_wavelengths, "D65")
+        self.ref_rgb = XYZ2RGB(ref_XYZ)
+
+        ref_initial_center = detect_circle_center(self.ref_rgb, vis)
+        ref_initial_mask = compute_IC_mask(
+            self.ref_rgb, vis=vis, pixel_IC=ref_initial_center
+        )
+        ref_single_band = R_sample[self.wavelengths.index(self.band), :, :]
+        self.ref_binary = gray_to_binary_image(ref_single_band)
+        ref_circle_info = get_circle_info(ref_initial_mask, self.ref_rgb, vis)
+        self.ref_center = (
+            int(np.round(ref_circle_info["centroid"][0])),
+            int(np.round(ref_circle_info["centroid"][1])),
+        )
+        self.ref_radius = (
+            int(np.round(ref_circle_info["min_enclosing_circle"]["radius"])) - 5
+        )
+        self.IC_visualization = [
+            crop_circle(self.ref_rgb, self.ref_center, self.ref_radius)
+        ]
+
+        output = self.ref_rgb.copy()
+        cv2.circle(output, self.ref_center, self.ref_radius, (0, 255, 0), 2)
+        cv2.circle(output, self.ref_center, 2, (0, 0, 255), -1)
+        self.IC_visualization2 = [output]
+
+        ref_spectrum = average_reflectance_in_circle(
+            R_sample, self.ref_center, self.ref_radius
+        )
+        self.spectra_visualization = {"reference": ref_spectrum}
+
+        self.ref_mask = np.zeros(self.ref_LAB.shape[:2], dtype=np.uint8)
+        cv2.circle(self.ref_mask, self.ref_center, self.ref_radius, 1, -1)
+
+        self.ref_mask = ref_initial_mask
+
+    def process_samples(self):
+        self.samples_rgb = {}
+        for sample in self.sample_folders:
+            sample_cube = self.sample_cubes[sample]
+            cube_interp, new_wavelengths = interpolate_spectral_cube(
+                sample_cube, self.wavelengths, wl_min=360, wl_max=830, wl_step=10
+            )
+            cube_interp = np.transpose(cube_interp, (1, 2, 0))  # (H, W, b)
+            sample_XYZ = spim2XYZ(cube_interp, new_wavelengths, "D65")
+            self.samples_rgb[sample] = XYZ2RGB(sample_XYZ)
+
+    def align_samples_to_reference(self, vis=True):
+        self.homographies = {}
+        for sample in self.sample_folders:
+            # print(f"Aligning {sample}...")
+            sample_cube = self.sample_cubes[sample]
+            sample_single_band = sample_cube[self.wavelengths.index(self.band), :, :]
+            sample_binary = gray_to_binary_image(sample_single_band)
+            H = align_and_visualise_homography(
+                self.ref_binary, sample_binary, sample, visualise=vis
+            )
+            self.homographies[sample] = H
+
+            if vis:
+                aligned, _ = align_and_blend_RGB_homography(
+                    self.ref_rgb, self.samples_rgb[sample], H, sample
+                )
+                overlay_mask(
+                    self.samples_rgb[sample],
+                    self.ref_mask,
+                    sample,
+                    color=(1, 0, 0),
+                    alpha=0.5,
+                )
+                overlay_mask(
+                    aligned,
+                    self.ref_mask,
+                    f"aligned_{sample}",
+                    color=(1, 0, 0),
+                    alpha=0.5,
+                )
+
+    def compute_CTQs(self, vis):
+        self.deltaE_results = []  # CTQ1
+        self.samples_radius = []  # CTQ2
+
+        for sample in self.sample_folders:
+            print(f"Processing {sample}...")
+            # CTQ2 (in RGB)
+            top_left = self.sample_cubes[sample][:, : self.h // 2, : self.w // 2]
+
+            # Align sample to reference
+            sample_rgb = extract_RGB(top_left, self.wavelengths)
+
+            h, w, _ = sample_rgb.shape
+            A_3x3 = self.homographies[sample]
+            A_2x3 = A_3x3[:2, :]
+            aligned = cv2.warpAffine(sample_rgb, A_2x3, (w, h))
+
+            # Compute defect mask of IC to find circle radius
+            sample_initial_mask = compute_IC_mask(
+                sample_rgb, A_2x3, vis, self.ref_center
+            )
+            sample_circle_info = get_circle_info(sample_initial_mask, aligned, vis)
+            self.samples_radius.append(
+                sample_circle_info["min_enclosing_circle"]["radius"]
+            )
+
+            # Masked IC region for visualization
+            aligned_vis = cv2.warpAffine(self.samples_rgb[sample][:, : self.h // 2, : self.w // 2], A_2x3, (w, h))
+            self.IC_visualization.append(
+                crop_circle(aligned_vis, self.ref_center, self.ref_radius)
+            )
+            center = (
+                int(np.round(sample_circle_info["centroid"][0])),
+                int(np.round(sample_circle_info["centroid"][1])),
+            )
+            #radi = int(sample_circle_info["min_enclosing_circle"]["radius"])
+            output = aligned_vis.copy()
+            cv2.circle(output, center, self.ref_radius, (0, 255, 0), 2)
+            cv2.circle(output, center, 2, (0, 0, 255), -1)
+            self.IC_visualization2.append(output)
+
+            # CTQ1 (all spectra)
+            cube = self.sample_cubes[sample][:, : self.h // 2, : self.w // 2]
+            bands, h, w = cube.shape
+
+            # Align full cube and convert to LAB
+            cube_aligned = np.stack(
+                [cv2.warpAffine(cube[j], A_3x3[:2, :], (w, h)) for j in range(bands)]
+            )
+            cube_interp, new_wavelengths = interpolate_spectral_cube(
+                cube_aligned, self.wavelengths, wl_min=360, wl_max=830, wl_step=10
+            )
+            cube_interp = np.transpose(cube_interp, (1, 2, 0))  # (H, W, b)
+            sample_XYZ = spim2XYZ(cube_interp, new_wavelengths, "D65")
+            sample_LAB = XYZ2Lab(sample_XYZ, new_wavelengths, "D65")
+
+            # Cielab delta E with reference
+            DE_mean = calculate_delta_E(self.ref_LAB[: self.h // 2, : self.w // 2, :], sample_LAB, mask=self.ref_mask[: self.h // 2, : self.w // 2])
+            self.deltaE_results.append(DE_mean)
+
+    def save_results(self):
+        # Save results to df
+        result_df = pd.DataFrame()
+        result_df["ID"] = self.sample_folders
+        result_df["trial"] = self.trial
+        result_df["operator"] = self.operator
+        result_df["DE_mean"] = self.deltaE_results
+        result_df["D_radius"] = abs(
+            np.array(self.samples_radius) - (self.ref_radius + 5)
+        )
+        result_df["CTQ1"] = np.array(self.deltaE_results) > 2.8
+        result_df["CTQ2"] = result_df["D_radius"] > 1.2
+        result_df["Defect?"] = result_df["CTQ1"] | result_df["CTQ2"]
+    
+        return result_df
+
+    def test_sample(self):
+        self.load_data()
+        self.process_reference()
+        self.process_samples()
+        self.align_samples_to_reference(False)
+        self.compute_CTQs(True)
+        res = self.save_results()
+        # self.plot_IC_regions()
+        return res
+
+    def plot_deltaE(self):
+        plt.figure(figsize=(10, 5))
+        plt.bar(self.result_df["ID"], self.result_df["DE_mean"], color="skyblue")
+        plt.ylabel("DE (CIE2000)")
+        plt.title("Average Color Difference (DE) Between Reference and Defects")
+        plt.xticks(rotation=45)
+        plt.grid(True, linestyle="--", alpha=0.6)
+        plt.tight_layout()
+        plt.show()
+
+    def plot_IC_regions(self):
+        titles = ["reference"] + self.sample_folders
+        plt.figure(figsize=(18, 12))
+        cols = 5
+        rows = math.ceil((len(self.sample_folders) + 1) / cols)
+        for idx, (img, title) in enumerate(zip(self.IC_visualization, titles)):
+            plt.subplot(rows, cols, idx + 1)
+            if img.ndim == 2:
+                plt.imshow(img, cmap="gray")
+            else:
+                plt.imshow(img)
+            plt.title(title, fontsize=14, fontweight="bold")
+            plt.axis("off")
+        plt.tight_layout()
+        plt.show()
+
+    def plot_IC_regions2(self):
+        titles = ["reference"] + self.sample_folders
+        plt.figure(figsize=(18, 9))
+        cols = 6
+        rows = math.ceil((len(self.sample_folders) + 1) / cols)
+        for idx, (img, title) in enumerate(zip(self.IC_visualization, titles)):
+            plt.subplot(rows, cols, idx + 1)
+            if img.ndim == 2:
+                plt.imshow(img, cmap="gray")
+            else:
+                plt.imshow(img)  # [200:400,200:400,:])
+            plt.title(title, fontsize=14, fontweight="bold")
+            plt.axis("off")
+        plt.tight_layout()
+        plt.show()
+
+    def plot_average_spectras(self):
+        # Plot average spectra of each defect
+        for defect_name in self.sample_folders:
+            cube = self.sample_cubes[defect_name]
+            spec = average_reflectance_in_circle(
+                cube,
+                self.ref_center,
+                self.ref_radius,
+                transform=self.homographies[defect_name],
+            )
+            self.spectra_vis[defect_name] = spec
+        plt.figure(figsize=(10, 6))
+        for name, spectrum in self.spectra_vis.items():
+            plt.plot(self.wavelengths, spectrum, label=name)
+
+        plt.xlabel("Wavelength (nm)")
+        plt.ylabel("Average Reflectance")
+        plt.title("Average Spectral Reflectance (Circular Regions)")
+        plt.legend()
+        plt.show()

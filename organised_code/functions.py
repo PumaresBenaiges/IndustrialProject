@@ -119,12 +119,15 @@ def compute_IC_mask(RGB_image, H=None, vis=True, pixel_IC=(192, 305)):
         plt.show()
 
     # Get cluster that contains IC
-    IC_label = segmented_image[(pixel_IC[1], pixel_IC[0])]
+
+    IC_label = segmented_image[(pixel_IC[1]+1, pixel_IC[0])]
+    IC_label = round(IC_label)
     mask = (segmented_image == IC_label).astype(np.uint8)
+    
 
     # Using cluster region growing from center of IC
     flood_mask = mask.copy()
-    cv2.floodFill(flood_mask, None, (pixel_IC[0], pixel_IC[1]), 128)
+    cv2.floodFill(flood_mask, None, (pixel_IC[0], pixel_IC[1]+1), 128)
     circle_mask = (flood_mask == 128).astype(np.uint8)
 
     # Improve circle, fill holes
@@ -292,13 +295,13 @@ def get_circle_info(mask, rgb_image, visualisation=False):
 
     (x, y), radius = cv2.minEnclosingCircle(largest_contour)
 
-    center = (round(x), round(y))
+    center = (int(round(x)), int(round(y)))
 
     # Optional visualization
     if visualisation:
         output = rgb_image.copy()
-        cv2.circle(output, (int(x), int(y)), int(radius), (0, 255, 0), 2)
-        cv2.circle(output, (int(x), int(y)), 2, (0, 0, 255), -1)
+        cv2.circle(output, center, int(radius), (0, 255, 0), 2)
+        cv2.circle(output, center, 2, (0, 0, 255), -1)
 
         plt.imshow(output)
         plt.axis("off")
