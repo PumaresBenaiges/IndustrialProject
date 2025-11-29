@@ -7,9 +7,24 @@ from sklearn.cluster import KMeans
 from scipy.ndimage import binary_fill_holes
 from scipy.interpolate import interp1d
 import matplotlib.patches as mpatches
+import os
 
+def load_cube(folder_path):
+    tif_files = [
+        f for f in os.listdir(folder_path) if f.lower().endswith(".tif")
+    ]
+    tif_files.sort()
 
-def plot_image(image, title=""):
+    cube = []
+    for tif_file in tif_files:
+        tif_path = os.path.join(folder_path, tif_file)
+        tif = tiff.imread(tif_path)
+        cube.append(tif)
+    cube = np.array(cube)
+
+    return cube
+
+"""def plot_image(image, title=""):
     # Plot the image
     plt.figure(figsize=(6, 5))
     plt.imshow(image, cmap="gray")
@@ -48,7 +63,7 @@ def get_example_reflectance(defect_cubes, sample_name, wavelength):
     # Extract 2D image at selected wavelength
     reflectance_image = R[wavelengths.index(wavelength), :, :]
 
-    return reflectance_image
+    return reflectance_image"""
 
 
 def gray_to_binary_image(gray):
@@ -119,7 +134,6 @@ def compute_IC_mask(RGB_image, H=None, vis=True, pixel_IC=(192, 305)):
         plt.show()
 
     # Get cluster that contains IC
-
     IC_label = segmented_image[(pixel_IC[1]+1, pixel_IC[0])]
     IC_label = round(IC_label)
     mask = (segmented_image == IC_label).astype(np.uint8)
@@ -325,7 +339,7 @@ def get_circle_info(mask, rgb_image, visualisation=False):
 
 def crop_circle(image, center, radius):
     x, y = center
-    r = int(radius) # - 5
+    r = int(radius)
 
     x, y = int(round(x)), int(round(y))
     h, w = image.shape[:2]
@@ -388,8 +402,6 @@ def average_reflectance_in_circle(hypercube, center, radius, transform=None):
 #     if mask is not None:
 #         deltaE = deltaE[mask > 0]
 #     return np.nanmean(deltaE)
-import numpy as np
-
 
 def calculate_delta_E(LAB_ref, LAB_def, mask=None):
     if mask is not None:
@@ -491,7 +503,7 @@ def preprocess(img):
     img = clahe.apply(img)
     # Smooth edges to reduce noise
     img = cv2.GaussianBlur(img, (7,7), 1.5)
-    # Optional: sharpen edges
+    # Sharpen edges
     kernel = np.array([[0,-1,0],
                        [-1,5,-1],
                        [0,-1,0]])
@@ -516,19 +528,18 @@ def detect_circle_center(image, vis=False):
     minRadius=20,
     maxRadius=80
     )
-
-    # Draw only the first detected circle
-    output = image.copy()
+    
     center = None 
     if circles is not None:
+        # Extract center coordinates
         circles = np.uint16(np.around(circles))
         x, y, r = circles[0][0]
-        cv2.circle(output, (x, y), r, (0, 255, 0), 2)  # Circle outline
-        cv2.circle(output, (x, y), 2, (0, 0, 255), 3)  # Center point
-        # Extract center coordinates
-        center = (int(np.round(x)), int(np.round(y)))
+        center = (x, y)
 
     if vis:
+        output = image.copy()
+        cv2.circle(output, (x, y), r, (0, 255, 0), 2)  # Circle outline
+        cv2.circle(output, (x, y), 2, (0, 0, 255), 3)  # Center point
         plt.imshow(output)
         plt.title("Initial circle and center detection")
         plt.show()
