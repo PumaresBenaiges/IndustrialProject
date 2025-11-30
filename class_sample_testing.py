@@ -27,7 +27,7 @@ class sample_testing:
         sample_folders = [
             folder.name
             for folder in os.scandir(self.base_folder)
-            if folder.is_dir() and folder.name not in ["dark", "white", "reference", "reference_image"]
+            if folder.is_dir() and folder.name not in ["dark", "white", "reference", "reference image"]
         ]
         self.sample_folders = sorted(sample_folders, key=lambda x: int(''.join(filter(str.isdigit, x))))
 
@@ -42,10 +42,10 @@ class sample_testing:
         # Load dark, white and reference cubes
         dark_cube = load_cube(os.path.join(self.base_folder, "dark"))
         white_cube = load_cube(os.path.join(self.base_folder, "white"))
-        if self.sample_folders[0] == 'd1':
-            self.reference_cube = load_cube(os.path.join(self.base_folder, "reference"))#"reference image"))
-        else:
-            self.reference_cube = load_cube(os.path.join(self.base_folder, "reference")) 
+        try: 
+            self.reference_cube = load_cube(os.path.join(self.base_folder, "reference"))
+        except Exception:
+            self.reference_cube = load_cube(os.path.join(self.base_folder, "reference image"))
 
         # Load samples
         denominator = white_cube - dark_cube
