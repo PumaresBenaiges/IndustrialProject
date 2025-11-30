@@ -11,6 +11,7 @@ There is a set of train samples and a set of test samples captured in 6 differen
 - Provide scripts and utilities to streamline the full workflow (data loading, preprocessing, classification)
 
 ## File structure
+- **rename_data.py**: Used to rename some fodlers.
 - **functions.py**: Contains utility functions for image processing, CTQs extraction, and other core operations used throughout the project.
 - **class_sample_testing.py**: Implements a class-based structure for handling sample testing, including loading samples, running classification, and showing and saving results.
 - **CSL_2025_Python_codes.py**: Functions provided during Color Science Laboratory course, adapted and used for spectral conversion to XYZ, LAB and RGB.
