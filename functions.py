@@ -10,6 +10,11 @@ import matplotlib.patches as mpatches
 import os
 
 def load_cube(folder_path):
+    """
+    Loads a spectral cube from tiff files.
+    Input:
+    - folder_path: folder that contains the spectral images.
+    """
     tif_files = [
         f for f in os.listdir(folder_path) if f.lower().endswith(".tif")
     ]
@@ -67,6 +72,9 @@ def get_example_reflectance(defect_cubes, sample_name, wavelength):
 
 
 def gray_to_binary_image(gray):
+    """
+    Converts a gray image to binary by using a fixed threshold.
+    """
     gray_norm = gray / np.max(gray)
     gray_norm = (gray_norm * 255).astype(np.uint8)
     _, binary_image = cv2.threshold(gray_norm, 70, 255, cv2.THRESH_BINARY_INV)
@@ -75,6 +83,10 @@ def gray_to_binary_image(gray):
 
 
 def overlay_mask(base_image, mask, title, color=(1, 0, 0), alpha=0.5):
+    """
+    For visualization, plots a lense image with the mask over the IC region, 
+    to check that the mask is correctly aligned with image.
+    """
     base_image = base_image.astype(np.float32)
     if base_image.shape[0] == 3:
         base_image = np.transpose(base_image, (1, 2, 0))
@@ -95,6 +107,15 @@ def overlay_mask(base_image, mask, title, color=(1, 0, 0), alpha=0.5):
 
 
 def compute_IC_mask(RGB_image, H=None, vis=True, pixel_IC=(192, 305)):
+    """
+    Given an RGB image finds all pixels belonging to the IC region,
+    and returns as a binary mask.
+    Inputs:
+        - RGB_image
+        - H: transformation that needs to be applied to RGB_image to align it.
+        - vis: if its True it will show figures of intermediate steps.
+        - pixel_IC: pixel known to belong to the IC region
+    """
     RGB_image = RGB_image.astype(np.float32)
 
     if RGB_image.shape[0] == 3:
@@ -137,7 +158,6 @@ def compute_IC_mask(RGB_image, H=None, vis=True, pixel_IC=(192, 305)):
     IC_label = segmented_image[(pixel_IC[1]+1, pixel_IC[0])]
     IC_label = round(IC_label)
     mask = (segmented_image == IC_label).astype(np.uint8)
-    
 
     # Using cluster region growing from center of IC
     flood_mask = mask.copy()
@@ -162,10 +182,15 @@ def compute_IC_mask(RGB_image, H=None, vis=True, pixel_IC=(192, 305)):
 def align_and_visualise_homography(
     img_ref, img_to_align, defect, n_features=7000, visualise=True
 ):
-    """    if img_ref.dtype != np.uint8:
-            img_ref = np.clip(img_ref * 255, 0, 255).astype(np.uint8)
-    if img_to_align.dtype != np.uint8:
-            img_to_align = np.clip(img_to_align * 255, 0, 255).astype(np.uint8)"""
+    """
+    Aligns 2 images and returns the homography matrix.
+    Inputs:
+        - img_ref
+        - img_to_align: image that we want to aligne to img_ref
+        - defect: id of image
+        - n_features: number of features to use for the matching
+        - visualise: if True it will show results
+    """
 
     img_to_align = cv2.equalizeHist(img_to_align)
 
@@ -248,7 +273,12 @@ def align_and_visualise_homography(
 
 def align_and_blend_RGB_homography(ref_rgb, defect_rgb, H, defect_name):
     """
-    Align defect_rgb to ref_rgb using the homography H (cv2.warpPerspective)
+    Align defect_rgb to ref_rgb using the homography H.
+    Inputs:
+        - ref_rgb: RGB image
+        - defect_rgb: image to align to ref_rgb
+        - H: transformation matrix from defect_rgb to ref_rgb
+        - defect_name: id of image
     """   
     if ref_rgb.dtype != np.uint8:
             ref_rgb = np.clip(ref_rgb * 255, 0, 255).astype(np.uint8)
@@ -280,6 +310,11 @@ def align_and_blend_RGB_homography(ref_rgb, defect_rgb, H, defect_name):
 
 
 def extract_RGB(cube, wavelengths):
+    """
+    Returns False RGB image by selcting 3 defined wavelengths.
+    Inputs:
+        - cube: spectral image.
+        - wavelengths: list of available wavelengths in cube."""
     RGB = cube[
         [wavelengths.index(650), wavelengths.index(550), wavelengths.index(470)],
         :,
@@ -290,7 +325,13 @@ def extract_RGB(cube, wavelengths):
 
 
 def get_circle_info(mask, rgb_image, visualisation=False):
-
+    """
+    Given a binary image that has a circle it detects the circle contour and finds center and radius.
+    Inputs:
+        - mask: binary mask of IC region
+        - rgb_image: corresponding with the mask, used for visualization.
+        - visualisation_ if True it will show figures of results
+    """
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:
         return None
@@ -303,9 +344,6 @@ def get_circle_info(mask, rgb_image, visualisation=False):
 
     centroid_x = M["m10"] / M["m00"]
     centroid_y = M["m01"] / M["m00"]
-
-    area = cv2.contourArea(largest_contour)
-    perimeter = cv2.arcLength(largest_contour, True)
 
     (x, y), radius = cv2.minEnclosingCircle(largest_contour)
 
@@ -322,22 +360,19 @@ def get_circle_info(mask, rgb_image, visualisation=False):
         plt.title("Final detected circle")
         plt.show()
 
-    ellipse = cv2.fitEllipse(largest_contour) if len(largest_contour) >= 5 else None
-
-    circularity = 4 * np.pi * area / (perimeter**2) if perimeter > 0 else 0
-
     return {
         "centroid": (centroid_x, centroid_y),
-        "area": area,
-        "perimeter": perimeter,
-        "min_enclosing_circle": {"center": (x, y), "radius": radius},
-        "ellipse": ellipse,
-        "circularity": circularity,
-        # "contour": largest_contour,
-    }
+        "radius": radius}
 
 
 def crop_circle(image, center, radius):
+    """
+    Given a center and a radius, mask a circle in the image.
+    Inputs:
+        - image: rgb image in which we will crop the circle
+        - center: center of circle
+        - radius: radius of circle
+    """
     x, y = center
     r = int(radius)
 
@@ -360,6 +395,14 @@ def crop_circle(image, center, radius):
 
 
 def average_reflectance_in_circle(hypercube, center, radius, transform=None):
+    """
+    Computes the average of values in a circular region in all bands, so the result is a spectral curve.
+    Inputs:
+        - hypercube: spectral image cube
+        - center: center of the circular region of interest
+        - radius: radius of the circular region of interest
+        - transform: optional, matrix to transform the cube before computing the average
+    """
 
     bands, h, w = hypercube.shape
 
@@ -381,7 +424,7 @@ def average_reflectance_in_circle(hypercube, center, radius, transform=None):
 
     mask = np.zeros((h, w), dtype=np.uint8)
     cx, cy = int(round(center[0])), int(round(center[1]))
-    r = int(radius) - 5
+    r = int(radius)
     cv2.circle(mask, (cx, cy), r, 1, -1)
 
     mean_reflectance = []
@@ -404,6 +447,14 @@ def average_reflectance_in_circle(hypercube, center, radius, transform=None):
 #     return np.nanmean(deltaE)
 
 def calculate_delta_E(LAB_ref, LAB_def, mask=None):
+    """
+    Computes average CIEDE 2000 color difference formula between 2 sets of LAB values.
+    Inputs:
+        - LAB_ref: LAB image
+        - LAB_def: LAB image
+        - mask: used to select the pixels of the image for which we will compute the difference
+    
+    """
     if mask is not None:
         LAB_ref = LAB_ref[mask > 0]
         LAB_def = LAB_def[mask > 0]
@@ -476,7 +527,15 @@ def calculate_delta_E(LAB_ref, LAB_def, mask=None):
 def interpolate_spectral_cube(
     spectral_cube, input_wavelengths, wl_min=300, wl_max=950, wl_step=1
 ):
-    """Interpolate hyperspectral cube to a new wavelength range"""
+    """
+    Interpolate hyperspectral cube to a new wavelength range
+    Inputs:
+        - spectral_cube
+        - input_wavelgths: list of wavelegths of the spectral_cube
+        - wl_min: min wavelength for the interpolation
+        - wl_max: max wavelength for the interpolation
+        - wl_step: space between wavelegths
+    """
     input_wavelengths = np.array(input_wavelengths)
     bands, H, W = spectral_cube.shape
 
@@ -498,6 +557,11 @@ def interpolate_spectral_cube(
     return spectral_cube_interp, output_wavelengths
 
 def preprocess(img):
+    """
+    Applis transformations for image enhancement.
+    Inputs: 
+        - img: grayscale image
+    """
     # CLAHE contrast enhancement
     clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
     img = clahe.apply(img)
@@ -511,6 +575,12 @@ def preprocess(img):
     return img
 
 def detect_circle_center(image, vis=False):
+    """
+    It returns the center of the first circle detected in an image.
+    Input:
+        - image: rgb or grayscale image
+        - vis: if True it visualises the detected circle.
+    """
     if image.max() <= 1.0:
         image = (image * 255).astype(np.uint8)
     if len(image.shape) > 2:

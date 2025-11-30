@@ -96,7 +96,7 @@ class sample_testing:
             int(np.round(ref_circle_info["centroid"][1])),
         )
         self.ref_radius = (
-            int(np.round(ref_circle_info["min_enclosing_circle"]["radius"])) - 5
+            int(np.round(ref_circle_info["radius"])) - 5
         )
 
         # Create mask of IC region
@@ -104,18 +104,14 @@ class sample_testing:
         cv2.circle(self.ref_mask, self.ref_center, self.ref_radius, 1, -1)
 
         # Only for visualization of results
-        self.IC_visualization = [
+        self.IC_visualization1 = [
             crop_circle(self.ref_rgb, self.ref_center, self.ref_radius)
         ]
         output = self.ref_rgb.copy()
         cv2.circle(output, self.ref_center, self.ref_radius, (0, 255, 0), 2)
         cv2.circle(output, self.ref_center, 2, (0, 0, 255), -1)
         self.IC_visualization2 = [output]
-
-        ref_spectrum = average_reflectance_in_circle(
-            R_sample, self.ref_center, self.ref_radius
-        )
-        self.spectra_visualization = {"reference": ref_spectrum}
+  
 
     def process_samples(self):
         """
@@ -126,11 +122,11 @@ class sample_testing:
         self.samples_rgb = {}
         for sample in self.sample_folders:
             sample_cube = self.sample_cubes[sample]
-            cube_interp, new_wavelengths = interpolate_spectral_cube(
+            cube_interp, self.new_wavelengths = interpolate_spectral_cube(
                 sample_cube, self.wavelengths, wl_min=360, wl_max=830, wl_step=10
             )
             cube_interp = np.transpose(cube_interp, (1, 2, 0))  # (H, W, b)
-            sample_XYZ = spim2XYZ(cube_interp, new_wavelengths, "D65")
+            sample_XYZ = spim2XYZ(cube_interp, self.new_wavelengths, "D65")
             self.samples_rgb[sample] = XYZ2RGB(sample_XYZ)
 
     def align_samples_to_reference(self):
@@ -182,9 +178,8 @@ class sample_testing:
             # CTQ2 (in RGB)
             top_left = self.sample_cubes[sample][:, : self.h // 2, : self.w // 2]
 
-            # Align sample to reference
+            # Align RGB sample to reference
             sample_rgb = extract_RGB(top_left, self.wavelengths)
-
             h, w, _ = sample_rgb.shape
             A_3x3 = self.homographies[sample]
             A_2x3 = A_3x3[:2, :]
@@ -196,19 +191,21 @@ class sample_testing:
             )
             sample_circle_info = get_circle_info(sample_initial_mask, aligned, self.vis)
             self.samples_radius.append(
-                sample_circle_info["min_enclosing_circle"]["radius"]
+                sample_circle_info["radius"]
             )
 
             # Masked IC region for visualization
             aligned_vis = cv2.warpAffine(self.samples_rgb[sample][:, : self.h // 2, : self.w // 2], A_2x3, (w, h))
-            self.IC_visualization.append(
+            self.IC_visualization1.append(
                 crop_circle(aligned_vis, self.ref_center, self.ref_radius)
             )
+
+            # Circle Visualization
             center = (
-                int(np.round(sample_circle_info["centroid"][0])),
-                int(np.round(sample_circle_info["centroid"][1])),
+                int(sample_circle_info["centroid"][0]),
+                int(sample_circle_info["centroid"][1]),
             )
-            radi = int(sample_circle_info["min_enclosing_circle"]["radius"])
+            radi = int(sample_circle_info["radius"])
             output = aligned_vis.copy()
             cv2.circle(output, center, radi, (0, 255, 0), 2)
             cv2.circle(output, center, 2, (0, 0, 255), -1)
@@ -218,7 +215,7 @@ class sample_testing:
             cube = self.sample_cubes[sample][:, : self.h // 2, : self.w // 2]
             bands, h, w = cube.shape
 
-            # Align full cube and convert to LAB
+            # Align full cube, interpolate and convert to LAB
             cube_aligned = np.stack(
                 [cv2.warpAffine(cube[j], A_3x3[:2, :], (w, h)) for j in range(bands)]
             )
@@ -281,7 +278,7 @@ class sample_testing:
         plt.figure(figsize=(18, 12))
         cols = 5
         rows = math.ceil((len(self.sample_folders) + 1) / cols)
-        for idx, (img, title) in enumerate(zip(self.IC_visualization, titles)):
+        for idx, (img, title) in enumerate(zip(self.IC_visualization1, titles)):
             plt.subplot(rows, cols, idx + 1)
             if img.ndim == 2:
                 plt.imshow(img, cmap="gray")
@@ -292,43 +289,67 @@ class sample_testing:
         plt.tight_layout()
         plt.show()
 
-    def plot_IC_regions2(self):
-        titles = ["reference"] + self.sample_folders #
-        #titles = ["reference: " +str(self.ref_radius+5)] + [t + ": " +str(round(delta,2)) for t, delta in zip(self.sample_folders, self.samples_radius)]
-        plt.figure(figsize=(13, 9))
-        cols = 5
+        plt.figure(figsize=(18, 12))
         rows = math.ceil((len(self.sample_folders) + 1) / cols)
         for idx, (img, title) in enumerate(zip(self.IC_visualization2, titles)):
             plt.subplot(rows, cols, idx + 1)
             if img.ndim == 2:
                 plt.imshow(img, cmap="gray")
             else:
-                plt.imshow(img[200:400,100:300,:])
+                cx, cy = self.ref_center
+                plt.imshow(img[cy-100:cy+100,cx-100:cx+100,:])
             plt.title(title, fontsize=18, fontweight="bold")
             plt.axis("off")
         plt.tight_layout()
-        plt.show()
+        plt.show()        
 
     def plot_average_spectras(self):
         """
         Visualization of mean spectra of IC region.
         """
-        # Plot average spectra of each defect
-        for defect_name in self.sample_folders:
-            cube = self.sample_cubes[defect_name]
-            spec = average_reflectance_in_circle(
-                cube,
-                self.ref_center,
-                self.ref_radius,
-                transform=self.homographies[defect_name],
+        # Reference spectras
+        R_sample_interp, new_wavelengths = interpolate_spectral_cube(
+            self.reference_cube[:, : self.h // 2, : self.w // 2], self.wavelengths, wl_min=360, wl_max=830, wl_step=10
+        )
+        inter_spectra = average_reflectance_in_circle(
+            R_sample_interp, self.ref_center, self.ref_radius
+        )
+        interpolated_spectra = [inter_spectra]
+        original_spectra = [average_reflectance_in_circle(
+            self.reference_cube, self.ref_center, self.ref_radius
+        )]
+        # Samples spectras
+        for sample in self.sample_folders:
+            cube = self.sample_cubes[sample][:, : self.h // 2, : self.w // 2]
+            bands, h, w = cube.shape
+            cube_aligned = np.stack(
+                [cv2.warpAffine(cube[j], self.homographies[sample][:2, :], (w, h)) for j in range(bands)]
             )
-            self.spectra_vis[defect_name] = spec
+            cube_interp, new_wavelengths = interpolate_spectral_cube(
+                cube_aligned, self.wavelengths, wl_min=360, wl_max=830, wl_step=10
+            )
+            avg_cube = average_reflectance_in_circle(cube_interp, self.ref_center, self.ref_radius)
+            avg_cube2 = average_reflectance_in_circle(cube_aligned, self.ref_center, self.ref_radius)
+            interpolated_spectra.append(avg_cube)
+            original_spectra.append(avg_cube2)
+        
+        titles = ["reference"] + self.sample_folders 
         plt.figure(figsize=(10, 6))
-        for name, spectrum in self.spectra_vis.items():
+        for name, spectrum in zip(titles, original_spectra):
             plt.plot(self.wavelengths, spectrum, label=name)
 
         plt.xlabel("Wavelength (nm)")
         plt.ylabel("Average Reflectance")
-        plt.title("Average Spectral Reflectance (Circular Regions)")
+        plt.title("Average Spectral Reflectance of IC region")
+        plt.legend()
+        plt.show()
+
+        plt.figure(figsize=(10, 6))
+        for name, spectrum in zip(titles, interpolated_spectra):
+            plt.plot(self.new_wavelengths, spectrum, label=name)
+
+        plt.xlabel("Wavelength (nm)")
+        plt.ylabel("Average Reflectance")
+        plt.title("Average Spectral Reflectance of IC region")
         plt.legend()
         plt.show()
