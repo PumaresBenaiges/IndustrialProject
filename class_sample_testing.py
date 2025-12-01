@@ -35,13 +35,16 @@ class sample_testing:
             range(450, 951, 20)
         )  # Bands set in the lab when capturing images
         self.band = 530  # Band for image alignment
+        print("Trial: ", trial, " Operator: ", operator)
 
     def load_data(self):
         """
-        Loads dark, white and reference image. Applies white correction to reference."""
+        Loads dark, white and reference image. Applies white correction to reference.
+        """
         # Load dark, white and reference cubes
         dark_cube = load_cube(os.path.join(self.base_folder, "dark"))
         white_cube = load_cube(os.path.join(self.base_folder, "white"))
+        self.reference_cube = load_cube(os.path.join(self.base_folder, "reference"))
         try: 
             self.reference_cube = load_cube(os.path.join(self.base_folder, "reference"))
         except Exception:
@@ -280,10 +283,7 @@ class sample_testing:
         rows = math.ceil((len(self.sample_folders) + 1) / cols)
         for idx, (img, title) in enumerate(zip(self.IC_visualization1, titles)):
             plt.subplot(rows, cols, idx + 1)
-            if img.ndim == 2:
-                plt.imshow(img, cmap="gray")
-            else:
-                plt.imshow(img)
+            plt.imshow(img)
             plt.title(title, fontsize=22, fontweight="bold")
             plt.axis("off")
         plt.tight_layout()
@@ -293,11 +293,10 @@ class sample_testing:
         rows = math.ceil((len(self.sample_folders) + 1) / cols)
         for idx, (img, title) in enumerate(zip(self.IC_visualization2, titles)):
             plt.subplot(rows, cols, idx + 1)
-            if img.ndim == 2:
-                plt.imshow(img, cmap="gray")
-            else:
-                cx, cy = self.ref_center
-                plt.imshow(img[cy-100:cy+100,cx-100:cx+100,:])
+            cx, cy = self.ref_center
+            img2 = img[cy-100:cy+100,cx-100:cx+100,:]
+            img2 = np.clip(img2, 0,1)
+            plt.imshow(img2)
             plt.title(title, fontsize=18, fontweight="bold")
             plt.axis("off")
         plt.tight_layout()

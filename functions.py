@@ -611,6 +611,7 @@ def detect_circle_center(image, vis=False):
         cv2.circle(output, (x, y), r, (0, 255, 0), 2)  # Circle outline
         cv2.circle(output, (x, y), 2, (0, 0, 255), 3)  # Center point
         plt.imshow(output)
+        plt.axis('off')
         plt.title("Initial circle and center detection")
         plt.show()
 

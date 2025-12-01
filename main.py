@@ -1,11 +1,13 @@
 import sys
 from class_sample_testing import *
 
+
 def plot_ctq_values(values, title, threshold, sample_labels, axis_name):
     x = np.arange(len(values[0]))
     width = 0.12
 
     plt.figure(figsize=(12, 6))
+    plt.rcParams.update({'font.size': 16})
     plt.bar(x - 2.5 * width, values[0], width, label="Trial 1 Operator 1")
     plt.bar(x - 1.5 * width, values[1], width, label="Trial 1 Operator 2")
     plt.bar(x - 0.5 * width, values[2], width, label="Trial 1 Operator 3")
@@ -14,20 +16,20 @@ def plot_ctq_values(values, title, threshold, sample_labels, axis_name):
     plt.bar(x + 2.5 * width, values[5], width, label="Trial 2 Operator 3")
     plt.axhline(y=threshold, color="red", linestyle="--", linewidth=1.5, label="Threshold: "+str(threshold))
     plt.xticks(x, sample_labels)
-    plt.xlabel("Samples", fontsize=16)
-    #plt.ylabel("Values")
-    plt.ylabel(axis_name,  fontsize=16)
-    #plt.title(title)
+    plt.xlabel("Samples")
+    plt.ylabel(axis_name)
+    plt.title(title)
     plt.legend(ncol=2)
     plt.tight_layout()
     plt.show()
 
 def plot_ctq_values_train(vals, labels, threshold, title, axis_name):
     plt.figure(figsize=(10, 6))
+    plt.rcParams.update({'font.size': 16})
     plt.bar(labels, vals, color="skyblue")
     plt.axhline(y=threshold, color="red", linestyle="--", linewidth=1.5, label="Threshold")
     plt.ylabel(axis_name,  fontsize=16)
-    #plt.title(title)
+    plt.title(title)
     plt.legend()
     plt.xticks(rotation=45)
     plt.yticks(fontsize=16)
