@@ -56,6 +56,9 @@ Choose wether you want to run in notebook or python script.
     - Run: `python3 main.py path_to_folder`
     - Args:
       - **path_to_folder** (string, optional): Path of the folder where you have the spectral data, by default: "./IDP Group A"
+    - Outputs:
+      - **train_results.xlsx**: Contains the CTQ and classification results for the train samples.
+      - **train_results.xlsx**: Conatins results for the test samples in each trial.
 
 
 
